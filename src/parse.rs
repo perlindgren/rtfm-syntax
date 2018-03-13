@@ -23,8 +23,7 @@ pub fn app(input: &str) -> Result<App> {
             "device" => {
                 ensure!(device.is_none(), "duplicated `device` field");
 
-                device =
-                    Some(::parse::path(tts).chain_err(|| "parsing `device`")?);
+                device = Some(::parse::path(tts).chain_err(|| "parsing `device`")?);
             }
             "idle" => {
                 ensure!(idle.is_none(), "duplicated `idle` field");
@@ -39,15 +38,12 @@ pub fn app(input: &str) -> Result<App> {
             "resources" => {
                 ensure!(resources.is_none(), "duplicated `resources` field");
 
-                resources = Some(
-                    ::parse::statics(tts).chain_err(|| "parsing `resources`")?,
-                );
+                resources = Some(::parse::statics(tts).chain_err(|| "parsing `resources`")?);
             }
             "tasks" => {
                 ensure!(tasks.is_none(), "duplicated `tasks` field");
 
-                tasks =
-                    Some(::parse::tasks(tts).chain_err(|| "parsing `tasks`")?);
+                tasks = Some(::parse::tasks(tts).chain_err(|| "parsing `tasks`")?);
             }
             _ => bail!("unknown field: `{}`", key),
         }
@@ -75,11 +71,7 @@ fn bool(tt: Option<&TokenTree>) -> Result<bool> {
 }
 
 /// Parses a delimited token tree
-fn delimited<R, F>(
-    tts: &mut Peekable<Iter<TokenTree>>,
-    delimiter: DelimToken,
-    f: F,
-) -> Result<R>
+fn delimited<R, F>(tts: &mut Peekable<Iter<TokenTree>>, delimiter: DelimToken, f: F) -> Result<R>
 where
     F: FnOnce(&[TokenTree]) -> Result<R>,
 {
@@ -144,13 +136,9 @@ fn idle(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Idle> {
                     path = Some(::parse::path(tts)?);
                 }
                 "resources" => {
-                    ensure!(
-                        resources.is_none(),
-                        "duplicated `resources` field"
-                    );
+                    ensure!(resources.is_none(), "duplicated `resources` field");
 
-                    resources = Some(::parse::resources(tts)
-                        .chain_err(|| "parsing `resources`")?);
+                    resources = Some(::parse::resources(tts).chain_err(|| "parsing `resources`")?);
                 }
                 _ => bail!("unknown field: `{}`", key),
             }
@@ -182,8 +170,7 @@ fn init(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Init> {
                 "resources" => {
                     ensure!(resources.is_none(), "duplicated `resources` field");
 
-                    resources = Some(::parse::resources(tts)
-                                     .chain_err(|| "parsing `resources`")?);
+                    resources = Some(::parse::resources(tts).chain_err(|| "parsing `resources`")?);
                 }
                 _ => bail!("unknown field: `{}`", key),
             }
@@ -207,10 +194,7 @@ fn resources(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Resources> {
         let mut tts = tts.iter().peekable();
         while let Some(tt) = tts.next() {
             if let &TokenTree::Token(Token::Ident(ref ident)) = tt {
-                ensure!(
-                    !idents.contains(ident),
-                    "ident {} listed more than once"
-                );
+                ensure!(!idents.contains(ident), "ident {} listed more than once");
 
                 idents.insert(ident.clone());
 
@@ -291,20 +275,18 @@ fn statics(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Statics> {
         let mut tts = tts.iter();
         while let Some(tt) = tts.next() {
             match tt {
-                &TokenTree::Token(Token::Ident(ref id))
-                    if id.as_ref() == "static" => {}
+                &TokenTree::Token(Token::Ident(ref id)) if id.as_ref() == "static" => {}
                 _ => {
                     bail!("expected keyword `static`, found {:?}", tt);
                 }
             }
 
             let tt = tts.next();
-            let ident =
-                if let Some(&TokenTree::Token(Token::Ident(ref id))) = tt {
-                    id
-                } else {
-                    bail!("expected Ident, found {:?}", tt);
-                };
+            let ident = if let Some(&TokenTree::Token(Token::Ident(ref id))) = tt {
+                id
+            } else {
+                bail!("expected Ident, found {:?}", tt);
+            };
 
             ensure!(
                 !statics.contains_key(ident),
@@ -320,8 +302,7 @@ fn statics(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Statics> {
 
             statics.insert(
                 ident.clone(),
-                ::parse::static_(&mut tts)
-                    .chain_err(|| format!("parsing `{}`", ident))?,
+                ::parse::static_(&mut tts).chain_err(|| format!("parsing `{}`", ident))?,
             );
         }
 
@@ -356,6 +337,7 @@ fn task(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Task> {
         let mut enabled = None;
         let mut path = None;
         let mut priority = None;
+        let mut interarrival = None;
         let mut resources = None;
 
         ::parse::fields(tts, |key, tts| {
@@ -363,30 +345,28 @@ fn task(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Task> {
                 "enabled" => {
                     ensure!(enabled.is_none(), "duplicated `enabled` field");
 
-                    enabled = Some(::parse::bool(tts.next())
-                        .chain_err(|| "parsing `enabled`")?);
+                    enabled = Some(::parse::bool(tts.next()).chain_err(|| "parsing `enabled`")?);
                 }
                 "path" => {
                     ensure!(path.is_none(), "duplicated `path` field");
 
-                    path = Some(
-                        ::parse::path(tts).chain_err(|| "parsing `path`")?,
-                    );
+                    path = Some(::parse::path(tts).chain_err(|| "parsing `path`")?);
                 }
                 "priority" => {
                     ensure!(priority.is_none(), "duplicated `priority` field");
 
-                    priority = Some(::parse::u8(tts.next())
-                        .chain_err(|| "parsing `priority`")?);
+                    priority = Some(::parse::u8(tts.next()).chain_err(|| "parsing `priority`")?);
+                }
+                "interarrival" => {
+                    ensure!(interarrival.is_none(), "duplicated `interarrival` field");
+
+                    interarrival =
+                        Some(::parse::u32(tts.next()).chain_err(|| "parsing `interarrival`")?);
                 }
                 "resources" => {
-                    ensure!(
-                        resources.is_none(),
-                        "duplicated `resources` field"
-                    );
+                    ensure!(resources.is_none(), "duplicated `resources` field");
 
-                    resources = Some(::parse::resources(tts)
-                        .chain_err(|| "parsing `resources`")?);
+                    resources = Some(::parse::resources(tts).chain_err(|| "parsing `resources`")?);
                 }
                 _ => bail!("unknown field: `{}`", key),
             }
@@ -399,6 +379,7 @@ fn task(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Task> {
             enabled,
             path,
             priority,
+            interarrival,
             resources,
         })
     })
@@ -418,8 +399,7 @@ fn tasks(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Tasks> {
 
             tasks.insert(
                 key.clone(),
-                ::parse::task(tts)
-                    .chain_err(|| format!("parsing task `{}`", key))?,
+                ::parse::task(tts).chain_err(|| format!("parsing task `{}`", key))?,
             );
 
             Ok(())
@@ -431,15 +411,19 @@ fn tasks(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Tasks> {
 
 /// Parses an integer with type `u8`
 fn u8(tt: Option<&TokenTree>) -> Result<u8> {
-    if let Some(
-        &TokenTree::Token(
-            Token::Literal(Lit::Int(priority, IntTy::Unsuffixed)),
-        ),
-    ) = tt
-    {
+    if let Some(&TokenTree::Token(Token::Literal(Lit::Int(priority, IntTy::Unsuffixed)))) = tt {
         ensure!(priority < 256, "{} is out of the `u8` range", priority);
 
         Ok(priority as u8)
+    } else {
+        bail!("expected integer, found {:?}", tt);
+    }
+}
+
+/// Parses an integer with type `u32`
+fn u32(tt: Option<&TokenTree>) -> Result<u32> {
+    if let Some(&TokenTree::Token(Token::Literal(Lit::Int(inter, IntTy::Unsuffixed)))) = tt {
+        Ok(inter as u32)
     } else {
         bail!("expected integer, found {:?}", tt);
     }

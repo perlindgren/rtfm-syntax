@@ -55,7 +55,9 @@ pub struct Task {
     pub path: Option<Path>,
     /// `priority: $u8`
     pub priority: Option<u8>,
-    /// `resources: $Resources`
+    /// `interarrival: $u32`
+    pub interarrival: Option<u32>,
+    /// `resources: $Resources
     pub resources: Resources,
     _extensible: (),
 }
@@ -173,6 +175,7 @@ fn tasks(tasks: Option<::Tasks>) -> Result<Tasks> {
                             enabled: task.enabled,
                             path: task.path,
                             priority: task.priority,
+                            interarrival: task.interarrival,
                             resources: ::check::resources("resources", task.resources)?,
                         },
                     ))

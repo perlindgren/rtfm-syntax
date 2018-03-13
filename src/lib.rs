@@ -80,6 +80,8 @@ pub struct Task {
     pub path: Option<Path>,
     /// `priority: $u8`
     pub priority: Option<u8>,
+    /// `interarrival: $u32`
+    pub interarrival: Option<u32>,
     /// `resources: $Resources`
     pub resources: Option<Resources>,
     _extensible: (),
