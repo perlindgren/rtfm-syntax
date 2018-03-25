@@ -142,7 +142,7 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
                                             println!("path {:?}", path);
                                             init_path = Some(path);
                                         } else {
-                                            bail!("Field `device` multiple defined.");
+                                            bail!("Field `path` multiple defined.");
                                         }
                                     }
                                     EnumIdle::IdleResources(res) => {
@@ -167,7 +167,7 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
                         }
                         _ => {
                             println!("expected list of resource definitions");
-                            panic!("internal error");
+                            panic!("internal or");
                         }
                     }
                 } else {
@@ -252,6 +252,37 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
     } else {
         bail!("Field `device` missing.");
     }
+}
+
+fn parse_path_resources(ts: TokenStream) -> Result<(Option<Path>, Option<Resources>)> {
+    let mut init_path: Option<Path> = None;
+    let mut resources = None;
+    let pt: Punct<EnumIdle, Token![,]> = syn::parse2(ts).unwrap();
+    for e in pt.data.into_iter() {
+        match e {
+            EnumIdle::IdlePath(path) => {
+                if init_path == None {
+                    println!("path {:?}", path);
+                    init_path = Some(path);
+                } else {
+                    bail!("Field `path` multiple defined.");
+                }
+            }
+            EnumIdle::IdleResources(res) => {
+                println!("resources {:?}", res);
+                if resources != None {
+                    bail!("Field 'resources` multiple defined.");
+                } else {
+                    let mut hs = Resources::new();
+                    for r in res.into_iter() {
+                        hs.insert(r);
+                    }
+                    resources = Some(hs);
+                }
+            }
+        }
+    }
+    Ok((init_path, resources))
 }
 
 // Vec[T] (or perhaps not quite)
