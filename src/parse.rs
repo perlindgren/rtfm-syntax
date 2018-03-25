@@ -16,7 +16,7 @@ use either::Either;
 use proc_macro2::TokenStream;
 
 use syn;
-use {App, Init, Resources};
+use {App, Idle, Init, Resources};
 
 struct Fail {}
 
@@ -85,7 +85,7 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
     let mut device: Option<Path> = None;
     let mut resources: Vec<ResFields> = Vec::new();
     let mut init: Option<Init> = None;
-    let mut idle: Vec<IdleFields> = Vec::new();
+    let mut idle: Option<Idle> = None;
     let mut tasks: Vec<(Ident, Vec<EnumTask>)> = Vec::new();
 
     //let mut ok = true;
@@ -130,75 +130,45 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
                 if init == None {
                     match value.right() {
                         Some(ts) => {
-                            println!("ts");
-
-                            let mut init_path: Option<Path> = None;
-                            let mut resources = None;
-                            let pt: Punct<EnumIdle, Token![,]> = syn::parse2(ts).unwrap();
-                            for e in pt.data.into_iter() {
-                                match e {
-                                    EnumIdle::IdlePath(path) => {
-                                        if init_path == None {
-                                            println!("path {:?}", path);
-                                            init_path = Some(path);
-                                        } else {
-                                            bail!("Field `path` multiple defined.");
-                                        }
-                                    }
-                                    EnumIdle::IdleResources(res) => {
-                                        println!("resources {:?}", res);
-                                        if resources != None {
-                                            bail!("Field 'resources` multiple defined.");
-                                        } else {
-                                            let mut hs = Resources::new();
-                                            for r in res.into_iter() {
-                                                hs.insert(r);
-                                            }
-                                            resources = Some(hs);
-                                        }
-                                    }
-                                }
-                            }
+                            let (path, resources) =
+                                parse_path_resources(ts).chain_err(|| "parsing init")?;
                             init = Some(Init {
-                                path: init_path,
+                                path,
                                 resources,
                                 _extensible: (),
                             })
                         }
                         _ => {
-                            println!("expected list of resource definitions");
-                            panic!("internal or");
+                            panic!("internal error");
                         }
                     }
                 } else {
                     bail!("Field `init` multiple defined.");
                 }
             }
-            // "idle" => {
-            //     println!("idle");
-            //     if idle.is_empty() {
-            //         match value.right() {
-            //             Some(ts) => {
-            //                 println!("ts");
 
-            //                 let idle: Punct<EnumIdle, Token![,]> = syn::parse2(ts).unwrap();
-            //                 for e in idle.data.iter() {
-            //                     match e {
-            //                         EnumIdle::IdlePath(path) => println!("path {:?}", path),
-            //                         EnumIdle::IdleResources(res) => println!("resources {:?}", res),
-            //                     }
-            //                 }
-            //             }
-            //             _ => {
-            //                 println!("expected list of idle definitions");
-            //                 panic!("internal error");
-            //             }
-            //         }
-            //     } else {
-            //         println!("Field `idle` multiple defined.");
-            //         ok = false;
-            //     }
-            // }
+            "idle" => {
+                println!("idle");
+                if idle == None {
+                    match value.right() {
+                        Some(ts) => {
+                            let (path, resources) =
+                                parse_path_resources(ts).chain_err(|| "parsing init")?;
+                            idle = Some(Idle {
+                                path,
+                                resources,
+                                _extensible: (),
+                            })
+                        }
+                        _ => {
+                            panic!("internal error");
+                        }
+                    }
+                } else {
+                    println!("Field `idle` multiple defined.");
+                }
+            }
+
             // "tasks" => {
             //     println!("tasks");
             //     if tasks.is_empty() {
@@ -245,7 +215,7 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
         Ok(App {
             device,
             init,
-            // idle,
+            idle,
             // resources,
             // tasks,
         })
@@ -256,7 +226,7 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
 
 fn parse_path_resources(ts: TokenStream) -> Result<(Option<Path>, Option<Resources>)> {
     let mut init_path: Option<Path> = None;
-    let mut resources = None;
+    let mut resources: Option<Resources> = None;
     let pt: Punct<EnumIdle, Token![,]> = syn::parse2(ts).unwrap();
     for e in pt.data.into_iter() {
         match e {
