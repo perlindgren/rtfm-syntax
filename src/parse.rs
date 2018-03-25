@@ -70,10 +70,13 @@ key!{KeyResources, "resources"}
 key!{KeyPrio, "priority"}
 key!{KeyEnabled, "enabled"}
 
-fn check_dup(key_val: &Punct<AppFields, Token![,]>) -> Result<()> {
+fn check_dup<T>(key_val: &Punct<KeyValue<T>, Token![,]>) -> Result<()>
+where
+    T: Synom,
+{
     let mut keys = HashSet::new();
     let mut err = false;
-    for AppFields { key, value: _ } in key_val.data.iter() {
+    for KeyValue { key, value: _ } in key_val.data.iter() {
         println!("key {:?}", key.as_ref());
         if !keys.insert(key) {
             let s = String::from(format!("Field `{:?}` multiple defined", key.as_ref()));
@@ -94,7 +97,9 @@ fn check_dup(key_val: &Punct<AppFields, Token![,]>) -> Result<()> {
 }
 
 pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
-    let app: Punct<AppFields, Token![,]> = syn::parse(input).chain_err(|| "parsing `app`")?;
+    let app: Punct<KeyValue<AppValue>, Token![,]> =
+        syn::parse(input).chain_err(|| "parsing `app`")?;
+
     check_dup(&app)?;
 
     let mut device: Option<Path> = None;
@@ -104,10 +109,9 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
     let mut tasks: Option<Tasks> = None;
     //let mut ok = true;
 
-    for AppFields { key, value } in app.data.into_iter() {
-        //println!("k {:?} v {:?}", key, value)
+    for KeyValue { key, value } in app.data.into_iter() {
         match key.as_ref() {
-            "device" => match value.as_ref().left() {
+            "device" => match value.value.as_ref().left() {
                 Some(path) => {
                     if device == None {
                         device = Some(path.clone());
@@ -123,7 +127,7 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
             "resources" => {
                 println!("resources");
 
-                match value.right() {
+                match value.value.right() {
                     Some(ts) => {
                         println!("ts");
                         let mut hm = Statics::new();
@@ -150,7 +154,7 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
             "init" => {
                 println!("init");
                 if init == None {
-                    match value.right() {
+                    match value.value.right() {
                         Some(ts) => {
                             let (path, resources) =
                                 parse_path_resources(ts).chain_err(|| "parsing init")?;
@@ -172,7 +176,7 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
             "idle" => {
                 println!("idle");
                 if idle == None {
-                    match value.right() {
+                    match value.value.right() {
                         Some(ts) => {
                             let (path, resources) =
                                 parse_path_resources(ts).chain_err(|| "parsing init")?;
@@ -193,7 +197,7 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
 
             "tasks" => {
                 println!("tasks");
-                match value.right() {
+                match value.value.right() {
                     Some(ts) => {
                         println!("ts");
 
