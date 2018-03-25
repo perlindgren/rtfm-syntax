@@ -16,7 +16,7 @@ use either::Either;
 use proc_macro2::TokenStream;
 
 use syn;
-use {App, Idle, Init, Resources};
+use {App, Idle, Init, Resources, Static, Statics, Task, Tasks};
 
 struct Fail {}
 
@@ -69,25 +69,14 @@ key!{KeyResources, "resources"}
 key!{KeyPrio, "priority"}
 key!{KeyEnabled, "enabled"}
 
-// #[derive(Debug)]
-// struct App {
-//     device: Option<Path>,
-//     resources: Vec<ResFields>,
-//     init: Option<Path>,
-//     idle_path: Option<Path>,
-//     idle_resources: Option<Vec<
-//     tasks: Vec<(Ident, Vec<EnumTask>)>,
-// }
-
 pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
     let app: Punct<AppFields, Token![,]> = syn::parse(input).chain_err(|| "parsing `app`")?;
 
     let mut device: Option<Path> = None;
-    let mut resources: Vec<ResFields> = Vec::new();
+    let mut resources: Option<Statics> = None;
     let mut init: Option<Init> = None;
     let mut idle: Option<Idle> = None;
-    let mut tasks: Vec<(Ident, Vec<EnumTask>)> = Vec::new();
-
+    let mut tasks: Option<Tasks> = None;
     //let mut ok = true;
 
     for AppFields { key, value } in app.data.into_iter() {
@@ -106,25 +95,33 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
                     panic!("internal error");
                 }
             },
-            // "resources" => {
-            //     println!("resources");
-            //     if resources.is_empty() {
-            //         match value.right() {
-            //             Some(ts) => {
-            //                 println!("ts");
-            //                 let res: Punct<ResFields, Token![;]> = syn::parse2(ts).unwrap();
-            //                 resources = Vec::from_iter(res.data.into_iter());
-            //             }
-            //             _ => {
-            //                 println!("expected list of resource definitions");
-            //                 panic!("internal error");
-            //             }
-            //         }
-            //     } else {
-            //         println!("Field `resource` multiple defined.");
-            //         ok = false;
-            //     }
-            // }
+            "resources" => {
+                println!("resources");
+
+                match value.right() {
+                    Some(ts) => {
+                        println!("ts");
+                        let mut hm = Statics::new();
+                        let res: Punct<ResFields, Token![;]> = syn::parse2(ts).unwrap();
+                        for r in res.data.into_iter() {
+                            hm.insert(
+                                r.ident,
+                                Static {
+                                    expr: r.expr,
+                                    ty: r.ty,
+                                    _extensible: (),
+                                },
+                            );
+                        }
+
+                        resources = Some(hm);
+                    }
+                    _ => {
+                        println!("expected list of resource definitions");
+                        panic!("internal error");
+                    }
+                }
+            }
             "init" => {
                 println!("init");
                 if init == None {
@@ -169,42 +166,50 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
                 }
             }
 
-            // "tasks" => {
-            //     println!("tasks");
-            //     if tasks.is_empty() {
-            //         match value.right() {
-            //             Some(ts) => {
-            //                 println!("ts");
+            "tasks" => {
+                println!("tasks");
+                match value.right() {
+                    Some(ts) => {
+                        println!("ts");
 
-            //                 let tasks: Punct<Tasks, Token![,]> = syn::parse2(ts).unwrap();
+                        let tasks: Punct<Tasks_parse, Token![,]> = syn::parse2(ts).unwrap();
 
-            //                 for Tasks { id, task } in tasks.data.into_iter() {
-            //                     println!("task {}", id.as_ref());
+                        for Tasks_parse { id, task } in tasks.data.into_iter() {
+                            println!("task {}", id.as_ref());
+                            let mut t = Task {
+                                enabled: None,
+                                path: None,
+                                priority: None,
+                                interarrival: None,
+                                resources: None,
+                                _extensible: (),
+                            };
 
-            //                     let task: Punct<
-            //                         EnumTask,
-            //                         Token![,],
-            //                     > = syn::parse2(task).unwrap();
-            //                     for tf in task.data {
-            //                         match tf {
-            //                             EnumTask::TaskPrio(prio) => println!("prio"),
-            //                             EnumTask::TaskPath(path) => println!("path"),
-            //                             EnumTask::TaskResources(res) => println!("res"),
-            //                             EnumTask::TaskEnabled(b) => println!("bool"),
-            //                         }
-            //                     }
-            //                 }
-            //             }
-            //             _ => {
-            //                 println!("expected list of task definitions");
-            //                 panic!("internal error");
-            //             }
-            //         }
-            //     } else {
-            //         println!("Field `tasks` multiple defined.");
-            //         ok = false;
-            //     }
-            // }
+                            let task: Punct<EnumTask, Token![,]> = syn::parse2(task).unwrap();
+                            for tf in task.data {
+                                match tf {
+                                    EnumTask::TaskPrio(prio) => {
+                                        t.priority = Some(prio.value() as u8)
+                                    }
+                                    EnumTask::TaskPath(path) => t.path = Some(path),
+                                    EnumTask::TaskResources(res) => {
+                                        let mut hs = Resources::new();
+                                        for r in res.into_iter() {
+                                            hs.insert(r);
+                                        }
+                                        t.resources = Some(hs);
+                                    }
+                                    EnumTask::TaskEnabled(b) => t.enabled = Some(b.value),
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        println!("expected list of task definitions");
+                        panic!("internal error");
+                    }
+                }
+            }
             _ => {
                 bail!("Illegal field {}.", key.as_ref());
             }
@@ -216,8 +221,9 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
             device,
             init,
             idle,
-            // resources,
-            // tasks,
+            resources,
+            tasks,
+            _extensible: (),
         })
     } else {
         bail!("Field `device` missing.");
@@ -295,7 +301,7 @@ impl Synom for AppFields {
 #[derive(Debug)]
 struct ResFields {
     ident: Ident,
-    type_: Type,
+    ty: Type,
     expr: Option<Expr>,
 }
 
@@ -307,7 +313,7 @@ impl Synom for ResFields {
         _static: keyword!(static) >>
         ident: syn!(Ident) >>
         _colon: syn!(Token![:]) >>
-        type_: syn!(Type) >>
+        ty: syn!(Type) >>
         expr: option!(
             do_parse!(
                 _eq: syn!(Token![=]) >>
@@ -315,7 +321,7 @@ impl Synom for ResFields {
                 (expr)
             )
         ) >>
-        (ResFields { ident, type_, expr })
+        (ResFields { ident, ty, expr })
     ));
 }
 
@@ -424,17 +430,17 @@ impl Synom for EnumTask {
     );
 }
 
-struct Tasks {
+struct Tasks_parse {
     id: Ident,
     task: TokenStream,
 }
 
-impl Synom for Tasks {
+impl Synom for Tasks_parse {
     named!(parse -> Self, do_parse!(
         id: syn!(Ident) >>
         _colon: punct!(:) >>
         task: braces!(syn!(TokenStream)) >>
-        (Tasks{id, task: task.1})
+        (Tasks_parse{id, task: task.1})
     ));
 }
 
