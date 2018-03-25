@@ -1,430 +1,460 @@
-use std::collections::{HashMap, HashSet};
-use std::iter::Peekable;
-use std::slice::Iter;
+#![feature(proc_macro)]
 
-use syn::{self, DelimToken, Ident, IntTy, Lit, Path, Token, TokenTree};
+extern crate either;
+extern crate proc_macro;
+extern crate proc_macro2;
 
+use syn::Path;
+use syn::punctuated::Punctuated;
+use syn::synom::Synom;
+use syn::{Expr, Ident, LitBool, LitInt, Type};
+use std::convert::From;
+use std::iter::FromIterator;
 use error::*;
 
-use {App, Idle, Init, Resources, Static, Statics, Task, Tasks};
+use either::Either;
+use proc_macro2::TokenStream;
 
-/// Parses the contents of `app! { $App }`
-pub fn app(input: &str) -> Result<App> {
-    let tts = syn::parse_token_trees(input)?;
+use syn;
+use {App, Init, Resources};
 
-    let mut device = None;
-    let mut idle = None;
-    let mut init = None;
-    let mut resources = None;
-    let mut tasks = None;
+struct Fail {}
 
-    fields(&tts, |key, tts| {
+impl Synom for Fail {
+    named!(parse -> Self, do_parse!(
+        _fail: syn!(Type) >>
+        (Fail {})
+    ));
+}
+
+macro_rules! key {
+    // `()` indicates that the macro takes no argument.
+    ($id: ident, $key: expr) => {
+        #[derive(Debug)]
+        struct $id {}
+
+        impl Synom for $id {
+            fn parse(i: syn::buffer::Cursor) -> syn::synom::PResult<Self> {
+                match <Ident>::parse(i) {
+                    ::std::result::Result::Err(err) => ::std::result::Result::Err(err),
+                    ::std::result::Result::Ok((o, i)) => {
+                        if o.as_ref() == $key {
+                            ::std::result::Result::Ok((($id {}), i))
+                        } else {
+                            match <Fail>::parse(i) {
+                                ::std::result::Result::Err(err) => {
+                                    // let s = String::from(format!(
+                                    //     "expected `{:?}`, got {:?}",
+                                    //     $key,
+                                    //     o.as_ref()
+                                    // ));
+
+                                    // o.span.unstable().warning(s).emit();
+
+                                    ::std::result::Result::Err(err)
+                                }
+                                _ => panic!("internal error"),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+}
+
+key!{KeyDevice, "device"}
+key!{KeyPath, "path"}
+key!{KeyResources, "resources"}
+key!{KeyPrio, "priority"}
+key!{KeyEnabled, "enabled"}
+
+// #[derive(Debug)]
+// struct App {
+//     device: Option<Path>,
+//     resources: Vec<ResFields>,
+//     init: Option<Path>,
+//     idle_path: Option<Path>,
+//     idle_resources: Option<Vec<
+//     tasks: Vec<(Ident, Vec<EnumTask>)>,
+// }
+
+pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
+    let app: Punct<AppFields, Token![,]> = syn::parse(input).chain_err(|| "parsing `app`")?;
+
+    let mut device: Option<Path> = None;
+    let mut resources: Vec<ResFields> = Vec::new();
+    let mut init: Option<Init> = None;
+    let mut idle: Vec<IdleFields> = Vec::new();
+    let mut tasks: Vec<(Ident, Vec<EnumTask>)> = Vec::new();
+
+    //let mut ok = true;
+
+    for AppFields { key, value } in app.data.into_iter() {
+        //println!("k {:?} v {:?}", key, value)
         match key.as_ref() {
-            "device" => {
-                ensure!(device.is_none(), "duplicated `device` field");
-
-                device = Some(::parse::path(tts).chain_err(|| "parsing `device`")?);
-            }
-            "idle" => {
-                ensure!(idle.is_none(), "duplicated `idle` field");
-
-                idle = Some(::parse::idle(tts).chain_err(|| "parsing `idle`")?);
-            }
+            "device" => match value.as_ref().left() {
+                Some(path) => {
+                    if device == None {
+                        device = Some(path.clone());
+                    } else {
+                        bail!("Field `device` multiple defined.");
+                    }
+                }
+                _ => {
+                    println!("device should be a path");
+                    panic!("internal error");
+                }
+            },
+            // "resources" => {
+            //     println!("resources");
+            //     if resources.is_empty() {
+            //         match value.right() {
+            //             Some(ts) => {
+            //                 println!("ts");
+            //                 let res: Punct<ResFields, Token![;]> = syn::parse2(ts).unwrap();
+            //                 resources = Vec::from_iter(res.data.into_iter());
+            //             }
+            //             _ => {
+            //                 println!("expected list of resource definitions");
+            //                 panic!("internal error");
+            //             }
+            //         }
+            //     } else {
+            //         println!("Field `resource` multiple defined.");
+            //         ok = false;
+            //     }
+            // }
             "init" => {
-                ensure!(init.is_none(), "duplicated `init` field");
+                println!("init");
+                if init == None {
+                    match value.right() {
+                        Some(ts) => {
+                            println!("ts");
 
-                init = Some(::parse::init(tts).chain_err(|| "parsing `init`")?);
-            }
-            "resources" => {
-                ensure!(resources.is_none(), "duplicated `resources` field");
-
-                resources = Some(::parse::statics(tts).chain_err(|| "parsing `resources`")?);
-            }
-            "tasks" => {
-                ensure!(tasks.is_none(), "duplicated `tasks` field");
-
-                tasks = Some(::parse::tasks(tts).chain_err(|| "parsing `tasks`")?);
-            }
-            _ => bail!("unknown field: `{}`", key),
-        }
-
-        Ok(())
-    })?;
-
-    Ok(App {
-        _extensible: (),
-        device: device.ok_or("`device` field is missing")?,
-        idle,
-        init,
-        resources,
-        tasks,
-    })
-}
-
-/// Parses a boolean
-fn bool(tt: Option<&TokenTree>) -> Result<bool> {
-    if let Some(&TokenTree::Token(Token::Literal(Lit::Bool(bool)))) = tt {
-        Ok(bool)
-    } else {
-        bail!("expected boolean, found {:?}", tt);
-    }
-}
-
-/// Parses a delimited token tree
-fn delimited<R, F>(tts: &mut Peekable<Iter<TokenTree>>, delimiter: DelimToken, f: F) -> Result<R>
-where
-    F: FnOnce(&[TokenTree]) -> Result<R>,
-{
-    let tt = tts.next();
-    if let Some(&TokenTree::Delimited(ref block)) = tt {
-        ensure!(
-            block.delim == delimiter,
-            "expected {:?}, found {:?}",
-            delimiter,
-            block.delim
-        );
-
-        f(&block.tts)
-    } else {
-        bail!("expected a Delimited sequence, found {:?}", tt);
-    }
-}
-
-/// Parses `$($Ident: $($tt)*,)*`
-fn fields<F>(tts: &[TokenTree], mut f: F) -> Result<()>
-where
-    F: FnMut(&Ident, &mut Peekable<Iter<TokenTree>>) -> Result<()>,
-{
-    let mut tts = tts.iter().peekable();
-
-    while let Some(tt) = tts.next() {
-        let ident = if let TokenTree::Token(Token::Ident(ref id)) = *tt {
-            id
-        } else {
-            bail!("expected Ident, found {:?}", tt);
-        };
-
-        let tt = tts.next();
-        if let Some(&TokenTree::Token(Token::Colon)) = tt {
-        } else {
-            bail!("expected Colon, found {:?}", tt);
-        }
-
-        f(ident, &mut tts)?;
-
-        let tt = tts.next();
-        match tt {
-            None | Some(&TokenTree::Token(Token::Comma)) => {}
-            _ => bail!("expected Comma, found {:?}", tt),
-        }
-    }
-
-    Ok(())
-}
-
-/// Parses the LHS of `idle: { $Idle }`
-fn idle(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Idle> {
-    ::parse::delimited(tts, DelimToken::Brace, |tts| {
-        let mut path = None;
-        let mut resources = None;
-
-        ::parse::fields(tts, |key, tts| {
-            match key.as_ref() {
-                "path" => {
-                    ensure!(path.is_none(), "duplicated `path` field");
-
-                    path = Some(::parse::path(tts)?);
-                }
-                "resources" => {
-                    ensure!(resources.is_none(), "duplicated `resources` field");
-
-                    resources = Some(::parse::resources(tts).chain_err(|| "parsing `resources`")?);
-                }
-                _ => bail!("unknown field: `{}`", key),
-            }
-
-            Ok(())
-        })?;
-
-        Ok(Idle {
-            _extensible: (),
-            path,
-            resources,
-        })
-    })
-}
-
-/// Parses the LHS of `init: { $Init }`
-fn init(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Init> {
-    ::parse::delimited(tts, DelimToken::Brace, |tts| {
-        let mut path = None;
-        let mut resources = None;
-
-        ::parse::fields(tts, |key, tts| {
-            match key.as_ref() {
-                "path" => {
-                    ensure!(path.is_none(), "duplicated `path` field");
-
-                    path = Some(::parse::path(tts)?);
-                }
-                "resources" => {
-                    ensure!(resources.is_none(), "duplicated `resources` field");
-
-                    resources = Some(::parse::resources(tts).chain_err(|| "parsing `resources`")?);
-                }
-                _ => bail!("unknown field: `{}`", key),
-            }
-
-            Ok(())
-        })?;
-
-        Ok(Init {
-            _extensible: (),
-            path,
-            resources,
-        })
-    })
-}
-
-/// Parses `[$($Ident,)*]`
-fn resources(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Resources> {
-    ::parse::delimited(tts, DelimToken::Bracket, |tts| {
-        let mut idents = HashSet::new();
-
-        let mut tts = tts.iter().peekable();
-        while let Some(tt) = tts.next() {
-            if let &TokenTree::Token(Token::Ident(ref ident)) = tt {
-                ensure!(!idents.contains(ident), "ident {} listed more than once");
-
-                idents.insert(ident.clone());
-
-                if let Some(tt) = tts.next() {
-                    ensure!(
-                        tt == &TokenTree::Token(Token::Comma),
-                        "expected Comma, found {:?}",
-                        tt
-                    );
-
-                    if tts.peek().is_none() {
-                        break;
+                            let mut init_path: Option<Path> = None;
+                            let mut resources = None;
+                            let pt: Punct<EnumIdle, Token![,]> = syn::parse2(ts).unwrap();
+                            for e in pt.data.into_iter() {
+                                match e {
+                                    EnumIdle::IdlePath(path) => {
+                                        if init_path == None {
+                                            println!("path {:?}", path);
+                                            init_path = Some(path);
+                                        } else {
+                                            bail!("Field `device` multiple defined.");
+                                        }
+                                    }
+                                    EnumIdle::IdleResources(res) => {
+                                        println!("resources {:?}", res);
+                                        if resources != None {
+                                            bail!("Field 'resources` multiple defined.");
+                                        } else {
+                                            let mut hs = Resources::new();
+                                            for r in res.into_iter() {
+                                                hs.insert(r);
+                                            }
+                                            resources = Some(hs);
+                                        }
+                                    }
+                                }
+                            }
+                            init = Some(Init {
+                                path: init_path,
+                                resources,
+                                _extensible: (),
+                            })
+                        }
+                        _ => {
+                            println!("expected list of resource definitions");
+                            panic!("internal error");
+                        }
                     }
                 } else {
-                    break;
+                    bail!("Field `init` multiple defined.");
                 }
-            } else {
-                bail!("expected Ident, found {:?}", tt);
             }
-        }
+            // "idle" => {
+            //     println!("idle");
+            //     if idle.is_empty() {
+            //         match value.right() {
+            //             Some(ts) => {
+            //                 println!("ts");
 
-        Ok(idents)
-    })
-}
+            //                 let idle: Punct<EnumIdle, Token![,]> = syn::parse2(ts).unwrap();
+            //                 for e in idle.data.iter() {
+            //                     match e {
+            //                         EnumIdle::IdlePath(path) => println!("path {:?}", path),
+            //                         EnumIdle::IdleResources(res) => println!("resources {:?}", res),
+            //                     }
+            //                 }
+            //             }
+            //             _ => {
+            //                 println!("expected list of idle definitions");
+            //                 panic!("internal error");
+            //             }
+            //         }
+            //     } else {
+            //         println!("Field `idle` multiple defined.");
+            //         ok = false;
+            //     }
+            // }
+            // "tasks" => {
+            //     println!("tasks");
+            //     if tasks.is_empty() {
+            //         match value.right() {
+            //             Some(ts) => {
+            //                 println!("ts");
 
-/// Parses `$Ty = $Expr`
-fn static_(tts: &mut Iter<TokenTree>) -> Result<Static> {
-    let mut fragments = vec![];
-    loop {
-        if let Some(tt) = tts.next() {
-            match *tt {
-                TokenTree::Token(Token::Eq) => break,
-                TokenTree::Token(Token::Semi) => {
-                    let ty = syn::parse_type(&format!("{}", quote!(#(#fragments)*)))?;
-                    return Ok(Static {
-                        _extensible: (),
-                        expr: None,
-                        ty,
-                    });
-                }
-                _ => fragments.push(tt),
+            //                 let tasks: Punct<Tasks, Token![,]> = syn::parse2(ts).unwrap();
+
+            //                 for Tasks { id, task } in tasks.data.into_iter() {
+            //                     println!("task {}", id.as_ref());
+
+            //                     let task: Punct<
+            //                         EnumTask,
+            //                         Token![,],
+            //                     > = syn::parse2(task).unwrap();
+            //                     for tf in task.data {
+            //                         match tf {
+            //                             EnumTask::TaskPrio(prio) => println!("prio"),
+            //                             EnumTask::TaskPath(path) => println!("path"),
+            //                             EnumTask::TaskResources(res) => println!("res"),
+            //                             EnumTask::TaskEnabled(b) => println!("bool"),
+            //                         }
+            //                     }
+            //                 }
+            //             }
+            //             _ => {
+            //                 println!("expected list of task definitions");
+            //                 panic!("internal error");
+            //             }
+            //         }
+            //     } else {
+            //         println!("Field `tasks` multiple defined.");
+            //         ok = false;
+            //     }
+            // }
+            _ => {
+                bail!("Illegal field {}.", key.as_ref());
             }
-        } else {
-            bail!("expected `=` or `;`, found end of macro");
         }
     }
 
-    let ty = syn::parse_type(&format!("{}", quote!(#(#fragments)*)))?;
-
-    let mut fragments = vec![];
-    loop {
-        if let Some(tt) = tts.next() {
-            if tt == &TokenTree::Token(Token::Semi) {
-                break;
-            } else {
-                fragments.push(tt);
-            }
-        } else {
-            bail!("expected Semicolon, found end of macro");
-        }
-    }
-
-    ensure!(!fragments.is_empty(), "initial value is missing");
-    let expr = quote!(#(#fragments)*);
-
-    Ok(Static {
-        _extensible: (),
-        expr: Some(expr),
-        ty,
-    })
-}
-
-/// Parses `$($Ident: $Ty = $Expr;)*`
-fn statics(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Statics> {
-    ::parse::delimited(tts, DelimToken::Brace, |tts| {
-        let mut statics = HashMap::new();
-
-        let mut tts = tts.iter();
-        while let Some(tt) = tts.next() {
-            match tt {
-                &TokenTree::Token(Token::Ident(ref id)) if id.as_ref() == "static" => {}
-                _ => {
-                    bail!("expected keyword `static`, found {:?}", tt);
-                }
-            }
-
-            let tt = tts.next();
-            let ident = if let Some(&TokenTree::Token(Token::Ident(ref id))) = tt {
-                id
-            } else {
-                bail!("expected Ident, found {:?}", tt);
-            };
-
-            ensure!(
-                !statics.contains_key(ident),
-                "resource {} listed more than once",
-                ident
-            );
-
-            let tt = tts.next();
-            if let Some(&TokenTree::Token(Token::Colon)) = tt {
-            } else {
-                bail!("expected Colon, found {:?}", tt);
-            }
-
-            statics.insert(
-                ident.clone(),
-                ::parse::static_(&mut tts).chain_err(|| format!("parsing `{}`", ident))?,
-            );
-        }
-
-        Ok(statics)
-    })
-}
-
-/// Parses a `Path` from `$($tt)*`
-fn path(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Path> {
-    let mut fragments = vec![];
-
-    loop {
-        if let Some(tt) = tts.peek() {
-            if tt == &&TokenTree::Token(Token::Comma) {
-                break;
-            } else {
-                fragments.push(tt.clone());
-            }
-        } else {
-            bail!("expected Comma, found end of macro")
-        }
-
-        tts.next();
-    }
-
-    Ok(syn::parse_path(&format!("{}", quote!(#(#fragments)*)))?)
-}
-
-/// Parses the LHS of `$Ident: { .. }`
-fn task(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Task> {
-    ::parse::delimited(tts, DelimToken::Brace, |tts| {
-        let mut enabled = None;
-        let mut path = None;
-        let mut priority = None;
-        let mut interarrival = None;
-        let mut resources = None;
-
-        ::parse::fields(tts, |key, tts| {
-            match key.as_ref() {
-                "enabled" => {
-                    ensure!(enabled.is_none(), "duplicated `enabled` field");
-
-                    enabled = Some(::parse::bool(tts.next()).chain_err(|| "parsing `enabled`")?);
-                }
-                "path" => {
-                    ensure!(path.is_none(), "duplicated `path` field");
-
-                    path = Some(::parse::path(tts).chain_err(|| "parsing `path`")?);
-                }
-                "priority" => {
-                    ensure!(priority.is_none(), "duplicated `priority` field");
-
-                    priority = Some(::parse::u8(tts.next()).chain_err(|| "parsing `priority`")?);
-                }
-                "interarrival" => {
-                    ensure!(interarrival.is_none(), "duplicated `interarrival` field");
-
-                    interarrival =
-                        Some(::parse::u32(tts.next()).chain_err(|| "parsing `interarrival`")?);
-                }
-                "resources" => {
-                    ensure!(resources.is_none(), "duplicated `resources` field");
-
-                    resources = Some(::parse::resources(tts).chain_err(|| "parsing `resources`")?);
-                }
-                _ => bail!("unknown field: `{}`", key),
-            }
-
-            Ok(())
-        })?;
-
-        Ok(Task {
-            _extensible: (),
-            enabled,
-            path,
-            priority,
-            interarrival,
-            resources,
+    if let Some(device) = device {
+        Ok(App {
+            device,
+            init,
+            // idle,
+            // resources,
+            // tasks,
         })
-    })
-}
-
-/// Parses `$($Ident: { $Task })*`
-fn tasks(tts: &mut Peekable<Iter<TokenTree>>) -> Result<Tasks> {
-    ::parse::delimited(tts, DelimToken::Brace, |tts| {
-        let mut tasks = HashMap::new();
-
-        ::parse::fields(tts, |key, tts| {
-            ensure!(
-                !tasks.contains_key(key),
-                "task {} listed more than once",
-                key
-            );
-
-            tasks.insert(
-                key.clone(),
-                ::parse::task(tts).chain_err(|| format!("parsing task `{}`", key))?,
-            );
-
-            Ok(())
-        })?;
-
-        Ok(tasks)
-    })
-}
-
-/// Parses an integer with type `u8`
-fn u8(tt: Option<&TokenTree>) -> Result<u8> {
-    if let Some(&TokenTree::Token(Token::Literal(Lit::Int(priority, IntTy::Unsuffixed)))) = tt {
-        ensure!(priority < 256, "{} is out of the `u8` range", priority);
-
-        Ok(priority as u8)
     } else {
-        bail!("expected integer, found {:?}", tt);
+        bail!("Field `device` missing.");
     }
 }
 
-/// Parses an integer with type `u32`
-fn u32(tt: Option<&TokenTree>) -> Result<u32> {
-    if let Some(&TokenTree::Token(Token::Literal(Lit::Int(inter, IntTy::Unsuffixed)))) = tt {
-        Ok(inter as u32)
-    } else {
-        bail!("expected integer, found {:?}", tt);
-    }
+// Vec[T] (or perhaps not quite)
+struct Punct<T, P>
+where
+    T: Synom,
+    P: Synom,
+{
+    data: Punctuated<T, P>,
 }
+
+// Parse a comma separated TokenStream into a Vec[T] (or perhaps not quite)
+impl<T, P> Synom for Punct<T, P>
+where
+    T: Synom,
+    P: Synom,
+{
+    named!(parse -> Self, map!(call!(Punctuated::parse_terminated_nonempty), |data| Punct { data }));
+}
+
+// Parse the top level app!
+// { device : Path, resources: {}, init: {}, ... }
+struct AppFields {
+    key: Ident,
+    value: Either<Path, TokenStream>,
+}
+
+impl Synom for AppFields {
+    named!(parse -> Self, do_parse!(
+        key: syn!(Ident) >>
+        _colon: punct!(:) >>
+        value: alt!(
+            map!(syn!(Path), |path| Either::Left(path)) |
+            map!(braces!(syn!(TokenStream)), |(_, ts)| Either::Right(ts))
+        ) >>
+        (AppFields { key, value })
+    ));
+}
+
+#[derive(Debug)]
+struct ResFields {
+    ident: Ident,
+    type_: Type,
+    expr: Option<Expr>,
+}
+
+// Parse a resource, e.g.,
+// static X : u32 = 3 + 3
+// static Y : u32 // late resource
+impl Synom for ResFields {
+    named!(parse -> Self, do_parse!(
+        _static: keyword!(static) >>
+        ident: syn!(Ident) >>
+        _colon: syn!(Token![:]) >>
+        type_: syn!(Type) >>
+        expr: option!(
+            do_parse!(
+                _eq: syn!(Token![=]) >>
+                expr: syn!(Expr) >>
+                (expr)
+            )
+        ) >>
+        (ResFields { ident, type_, expr })
+    ));
+}
+
+struct PathField {
+    path: Path,
+}
+
+// Parse the init
+// path: main::init
+impl Synom for PathField {
+    named!(parse -> Self, do_parse!(
+        _key: syn!(KeyPath) >>
+        _colon: syn!(Token![:]) >>
+        path: syn!(Path) >>
+        (PathField { path })
+    ));
+}
+
+struct IdleFields {
+    key: Ident,
+    value: TokenStream,
+}
+
+impl Synom for IdleFields {
+    named!(parse -> Self, do_parse!(
+        key: syn!(Ident) >>
+        _colon: punct!(:) >>
+        value: syn!(TokenStream) >>
+        (IdleFields { key, value })
+    ));
+}
+
+#[derive(Debug)]
+enum EnumIdle {
+    IdlePath(Path),
+    IdleResources(Punctuated<Ident, Token![,]>),
+}
+
+// Parse the idle
+// resources: [OWNED, SHARED]
+// path: main::idle,
+impl Synom for EnumIdle {
+    named!(parse -> Self, 
+        alt!(
+            do_parse!(
+                _path: syn!(KeyPath) >>
+                _colon: punct!(:) >>
+                path: syn!(Path) >>
+                (EnumIdle::IdlePath(path))
+            )
+            | 
+            do_parse!(
+                _res: syn!(KeyResources) >>
+                _colon: punct!(:) >>
+                res: brackets!(
+                    call!(Punctuated::<Ident, Token![,]>::parse_separated_nonempty)
+                ) >>
+                (EnumIdle::IdleResources(res.1))
+            )
+            // | TODO, error handling
+        )  
+    );
+}
+
+enum EnumTask {
+    TaskPath(Path),
+    TaskResources(Punctuated<Ident, Token![,]>),
+    TaskPrio(LitInt),
+    TaskEnabled(LitBool),
+}
+// path: main::idle,
+impl Synom for EnumTask {
+    named!(parse -> Self, 
+        alt!(
+            do_parse!(
+                _path: syn!(KeyPath) >>
+                _colon: punct!(:) >>
+                path: syn!(Path) >>
+                (EnumTask::TaskPath(path))
+            )
+            | 
+            do_parse!(
+                _res: syn!(KeyResources) >>
+                _colon: punct!(:) >>
+                res: brackets!(
+                    call!(Punctuated::<Ident, Token![,]>::parse_separated_nonempty)
+                ) >>
+                (EnumTask::TaskResources(res.1))
+            )
+            | 
+            do_parse!(
+                _res: syn!(KeyPrio) >>
+                _colon: punct!(:) >>
+                prio: syn!(LitInt) >>
+                (EnumTask::TaskPrio(prio))
+            )
+            | 
+            do_parse!(
+                _res: syn!(KeyEnabled) >>
+                _colon: punct!(:) >>
+                enabled: syn!(LitBool) >>
+                (EnumTask::TaskEnabled(enabled))
+            )
+            // | TODO, error handling
+        )  
+    );
+}
+
+struct Tasks {
+    id: Ident,
+    task: TokenStream,
+}
+
+impl Synom for Tasks {
+    named!(parse -> Self, do_parse!(
+        id: syn!(Ident) >>
+        _colon: punct!(:) >>
+        task: braces!(syn!(TokenStream)) >>
+        (Tasks{id, task: task.1})
+    ));
+}
+
+// fn check_app(app: App) -> Option<App> {
+//     let mut ok = true;
+
+//     // check device
+//     if app.device == None {
+//         println!("Field `device` missing.");
+//         ok = false;
+//     }
+
+//     // check resources
+//     for i in app.resources.iter() {
+//         println!(" {:?}", i);
+//     }
+//     // check idle
+
+//     if ok {
+//         Some(app)
+//     } else {
+//         None
+//     }
+// }

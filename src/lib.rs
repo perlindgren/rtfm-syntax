@@ -1,25 +1,32 @@
 //! Parser of the `app!` macro used by the Real Time For the Masses (RTFM)
 //! framework
-#![deny(missing_debug_implementations)]
-#![deny(missing_docs)]
-#![deny(warnings)]
+// #![deny(missing_debug_implementations)]
+// #![deny(missing_docs)]
+// #![deny(warnings)]
+#![feature(match_default_bindings)]
 
 #[macro_use]
 extern crate error_chain;
 #[macro_use]
 extern crate quote;
+extern crate proc_macro;
+#[macro_use]
 extern crate syn;
+extern crate either;
+extern crate proc_macro2;
+
+use either::Either;
+use proc_macro2::TokenStream;
 
 pub mod check;
 pub mod error;
 
 mod parse;
-mod util;
 
 use std::collections::{HashMap, HashSet};
 
 use quote::Tokens;
-use syn::{Ident, Path, Ty};
+use syn::{Ident, Path, Type};
 
 use error::*;
 
@@ -40,15 +47,15 @@ pub type Tasks = HashMap<Ident, Task>;
 pub struct App {
     /// `device: $path`
     pub device: Path,
-    /// `idle: { $Idle }`
-    pub idle: Option<Idle>,
+    // /// `idle: { $Idle }`
+    // pub idle: Option<Idle>,
     /// `init: { $Init }`
     pub init: Option<Init>,
-    /// `resources: $Statics`
-    pub resources: Option<Statics>,
-    /// `tasks: { $Tasks }`
-    pub tasks: Option<Tasks>,
-    _extensible: (),
+    // /// `resources: $Statics`
+    // pub resources: Option<Statics>,
+    // /// `tasks: { $Tasks }`
+    // pub tasks: Option<Tasks>,
+    // _extensible: (),
 }
 
 /// `idle: { .. }`
@@ -62,7 +69,7 @@ pub struct Idle {
 }
 
 /// `init: { .. }`
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Init {
     /// `path: $Path`
     pub path: Option<Path>,
@@ -93,13 +100,13 @@ pub struct Static {
     /// `$Expr`
     pub expr: Option<Expr>,
     /// `$Ty`
-    pub ty: Ty,
+    pub ty: Type,
     _extensible: (),
 }
 
 impl App {
     /// Parses the contents of the `app! { .. }` macro
-    pub fn parse(input: &str) -> Result<Self> {
-        parse::app(input)
+    pub fn parse(input: proc_macro::TokenStream) -> Result<Self> {
+        parse::parse_app(input)
     }
 }
