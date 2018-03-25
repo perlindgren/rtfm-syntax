@@ -306,6 +306,39 @@ where
 
 // Parse the top level app!
 // { device : Path, resources: {}, init: {}, ... }
+
+struct KeyValue<T> {
+    key: Ident,
+    value: T,
+}
+
+impl<T> Synom for KeyValue<T>
+where
+    T: Synom,
+{
+    named!(parse -> Self, do_parse!(
+        key: syn!(Ident) >>
+        _colon: punct!(:) >>
+        value: syn!(T)
+         >>
+        (KeyValue { key, value })
+    ));
+}
+
+struct AppValue {
+    value: Either<Path, TokenStream>,
+}
+impl Synom for AppValue {
+    named!(parse -> Self, do_parse!(
+    
+        value: alt!(
+            map!(syn!(Path), |path| Either::Left(path)) |
+            map!(braces!(syn!(TokenStream)), |(_, ts)| Either::Right(ts))
+        ) >>
+        (AppValue { value })
+    ));
+}
+
 struct AppFields {
     key: Ident,
     value: Either<Path, TokenStream>,
