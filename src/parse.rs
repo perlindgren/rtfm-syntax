@@ -11,6 +11,7 @@ use syn::{Expr, Ident, LitBool, LitInt, Type};
 use std::convert::From;
 use std::iter::FromIterator;
 use error::*;
+use std::collections::HashSet;
 
 use either::Either;
 use proc_macro2::TokenStream;
@@ -69,8 +70,32 @@ key!{KeyResources, "resources"}
 key!{KeyPrio, "priority"}
 key!{KeyEnabled, "enabled"}
 
+fn check_dup(key_val: &Punct<AppFields, Token![,]>) -> Result<()> {
+    let mut keys = HashSet::new();
+    let mut err = false;
+    for AppFields { key, value: _ } in key_val.data.iter() {
+        println!("key {:?}", key.as_ref());
+        if !keys.insert(key) {
+            let s = String::from(format!("Field `{:?}` multiple defined", key.as_ref()));
+
+            key.span.unstable().error(s).emit();
+
+            let first = keys.get(key).unwrap();
+            first.span.unstable().warning("first defined here").emit();
+
+            err = true;
+        }
+    }
+    if err {
+        bail!("Dupclicate(s) found.");
+    } else {
+        Ok(())
+    }
+}
+
 pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
     let app: Punct<AppFields, Token![,]> = syn::parse(input).chain_err(|| "parsing `app`")?;
+    check_dup(&app)?;
 
     let mut device: Option<Path> = None;
     let mut resources: Option<Statics> = None;
