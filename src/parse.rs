@@ -29,7 +29,6 @@ impl Synom for Fail {
 }
 
 macro_rules! key {
-    // `()` indicates that the macro takes no argument.
     ($id: ident, $key: expr) => {
         #[derive(Debug)]
         struct $id {}
@@ -96,8 +95,14 @@ where
     }
 }
 
+fn error(key: &Ident, msg: &str) -> Result<App> {
+    let s = String::from(msg);
+    key.span.unstable().error(s).emit();
+    bail!(msg);
+}
+
 pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
-    println!("--------------------------------------- debug");
+    // println!("--------------------------------------- debug");
     let app: Punct<KeyValue<AppValue>, Token![,]> =
         syn::parse(input).chain_err(|| "parsing `app`")?;
 
@@ -108,23 +113,17 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
     let mut init: Option<Init> = None;
     let mut idle: Option<Idle> = None;
     let mut tasks: Option<Tasks> = None;
-    //let mut ok = true;
 
     for KeyValue { key, value } in app.data.into_iter() {
         match key.as_ref() {
-            "device" => {
-                match value.value.left() {
-                    Some(path) => {
-                        device = Some(path);
-                    }
-                    _ => bail!("should be path"),
+            "device" => match value.value.left() {
+                Some(path) => {
+                    device = Some(path);
                 }
-                // device = Some(*value
-                //     .value
-                //     .as_ref()
-                //     .left()
-                //     .unwrap_or(bail!("should be a path.")))
-            }
+                _ => {
+                    error(&key, "path expected")?;
+                }
+            },
             "resources" => {
                 println!("resources");
 
@@ -202,10 +201,10 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
                     Some(ts) => {
                         println!("ts");
 
-                        let parse_tasks: Punct<Tasks_parse, Token![,]> = syn::parse2(ts).unwrap();
+                        let parse_tasks: Punct<TasksParse, Token![,]> = syn::parse2(ts).unwrap();
 
                         let mut hmt = HashMap::new();
-                        for Tasks_parse { id, task } in parse_tasks.data.into_iter() {
+                        for TasksParse { id, task } in parse_tasks.data.into_iter() {
                             println!("task {}", id.as_ref());
                             let mut t = Task {
                                 enabled: None,
@@ -244,7 +243,11 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
                 }
             }
             _ => {
-                bail!("Illegal field {}.", key.as_ref());
+                let s = String::from(format!(
+                    "Illegal field `{}`, expected `device`, `resources`, `init`, `idle`, or `task`.",
+                    key.as_ref()
+                ));
+                error(&key, &s)?;
             }
         }
     }
@@ -496,17 +499,17 @@ impl Synom for EnumTask {
     );
 }
 
-struct Tasks_parse {
+struct TasksParse {
     id: Ident,
     task: TokenStream,
 }
 
-impl Synom for Tasks_parse {
+impl Synom for TasksParse {
     named!(parse -> Self, do_parse!(
         id: syn!(Ident) >>
         _colon: punct!(:) >>
         task: braces!(syn!(TokenStream)) >>
-        (Tasks_parse{id, task: task.1})
+        (TasksParse{id, task: task.1})
     ));
 }
 
