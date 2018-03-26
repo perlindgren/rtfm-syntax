@@ -112,11 +112,11 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
     for KeyValue { key, value } in app.data.into_iter() {
         match key.as_ref() {
             "device" => {
-                device = Some(*value
-                    .value
-                    .as_ref()
-                    .left()
-                    .unwrap_or(bail!("should be a path.")))
+                // device = Some(*value
+                //     .value
+                //     .as_ref()
+                //     .left()
+                //     .unwrap_or(bail!("should be a path.")))
             }
             "resources" => {
                 println!("resources");

@@ -22,6 +22,8 @@ use proc_macro2::TokenStream;
 pub mod check;
 pub mod error;
 
+mod util;
+
 mod parse;
 
 use std::collections::{HashMap, HashSet};
