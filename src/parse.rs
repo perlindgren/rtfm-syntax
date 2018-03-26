@@ -111,19 +111,13 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
 
     for KeyValue { key, value } in app.data.into_iter() {
         match key.as_ref() {
-            "device" => match value.value.as_ref().left() {
-                Some(path) => {
-                    if device == None {
-                        device = Some(path.clone());
-                    } else {
-                        bail!("Field `device` multiple defined.");
-                    }
-                }
-                _ => {
-                    println!("device should be a path");
-                    panic!("internal error");
-                }
-            },
+            "device" => {
+                device = Some(*value
+                    .value
+                    .as_ref()
+                    .left()
+                    .unwrap_or(bail!("should be a path.")))
+            }
             "resources" => {
                 println!("resources");
 

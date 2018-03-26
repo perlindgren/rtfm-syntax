@@ -4,6 +4,7 @@
 // #![deny(missing_docs)]
 // #![deny(warnings)]
 #![feature(match_default_bindings)]
+#![feature(proc_macro)]
 
 #[macro_use]
 extern crate error_chain;
@@ -26,12 +27,9 @@ mod parse;
 use std::collections::{HashMap, HashSet};
 
 use quote::Tokens;
-use syn::{Ident, Path, Type};
+use syn::{Expr, Ident, Path, Type};
 
 use error::*;
-
-/// A rust expression
-pub type Expr = Tokens;
 
 /// `[$($ident),*]`
 pub type Resources = HashSet<Ident>;
@@ -47,19 +45,19 @@ pub type Tasks = HashMap<Ident, Task>;
 pub struct App {
     /// `device: $path`
     pub device: Path,
-    // /// `idle: { $Idle }`
-    // pub idle: Option<Idle>,
+    /// `idle: { $Idle }`
+    pub idle: Option<Idle>,
     /// `init: { $Init }`
     pub init: Option<Init>,
-    // /// `resources: $Statics`
-    // pub resources: Option<Statics>,
+    /// `resources: $Statics`
+    pub resources: Option<Statics>,
     // /// `tasks: { $Tasks }`
-    // pub tasks: Option<Tasks>,
-    // _extensible: (),
+    pub tasks: Option<Tasks>,
+    _extensible: (),
 }
 
 /// `idle: { .. }`
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Idle {
     /// `path: $Path`
     pub path: Option<Path>,
