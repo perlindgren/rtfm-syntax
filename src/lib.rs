@@ -8,16 +8,16 @@
 
 #[macro_use]
 extern crate error_chain;
-#[macro_use]
-extern crate quote;
+// #[macro_use]
 extern crate proc_macro;
+extern crate quote;
 #[macro_use]
 extern crate syn;
 extern crate either;
 extern crate proc_macro2;
 
-use either::Either;
-use proc_macro2::TokenStream;
+// use either::Either;
+// use proc_macro2::TokenStream;
 
 pub mod check;
 pub mod error;
@@ -28,7 +28,7 @@ mod parse;
 
 use std::collections::{HashMap, HashSet};
 
-use quote::Tokens;
+// use quote::Tokens;
 use syn::{Expr, Ident, Path, Type};
 
 use error::*;

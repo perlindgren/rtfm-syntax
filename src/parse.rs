@@ -9,9 +9,9 @@ use syn::punctuated::Punctuated;
 use syn::synom::Synom;
 use syn::{Expr, Ident, LitBool, LitInt, Type};
 use std::convert::From;
-use std::iter::FromIterator;
+// use std::iter::FromIterator;
 use error::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use either::Either;
 use proc_macro2::TokenStream;
@@ -97,6 +97,7 @@ where
 }
 
 pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
+    println!("--------------------------------------- debug");
     let app: Punct<KeyValue<AppValue>, Token![,]> =
         syn::parse(input).chain_err(|| "parsing `app`")?;
 
@@ -112,6 +113,12 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
     for KeyValue { key, value } in app.data.into_iter() {
         match key.as_ref() {
             "device" => {
+                match value.value.left() {
+                    Some(path) => {
+                        device = Some(path);
+                    }
+                    _ => bail!("should be path"),
+                }
                 // device = Some(*value
                 //     .value
                 //     .as_ref()
@@ -195,9 +202,10 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
                     Some(ts) => {
                         println!("ts");
 
-                        let tasks: Punct<Tasks_parse, Token![,]> = syn::parse2(ts).unwrap();
+                        let parse_tasks: Punct<Tasks_parse, Token![,]> = syn::parse2(ts).unwrap();
 
-                        for Tasks_parse { id, task } in tasks.data.into_iter() {
+                        let mut hmt = HashMap::new();
+                        for Tasks_parse { id, task } in parse_tasks.data.into_iter() {
                             println!("task {}", id.as_ref());
                             let mut t = Task {
                                 enabled: None,
@@ -225,7 +233,9 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
                                     EnumTask::TaskEnabled(b) => t.enabled = Some(b.value),
                                 }
                             }
+                            hmt.insert(id, t);
                         }
+                        tasks = Some(hmt);
                     }
                     _ => {
                         println!("expected list of task definitions");
@@ -337,22 +347,22 @@ impl Synom for AppValue {
     ));
 }
 
-struct AppFields {
-    key: Ident,
-    value: Either<Path, TokenStream>,
-}
+// struct AppFields {
+//     key: Ident,
+//     value: Either<Path, TokenStream>,
+// }
 
-impl Synom for AppFields {
-    named!(parse -> Self, do_parse!(
-        key: syn!(Ident) >>
-        _colon: punct!(:) >>
-        value: alt!(
-            map!(syn!(Path), |path| Either::Left(path)) |
-            map!(braces!(syn!(TokenStream)), |(_, ts)| Either::Right(ts))
-        ) >>
-        (AppFields { key, value })
-    ));
-}
+// impl Synom for AppFields {
+//     named!(parse -> Self, do_parse!(
+//         key: syn!(Ident) >>
+//         _colon: punct!(:) >>
+//         value: alt!(
+//             map!(syn!(Path), |path| Either::Left(path)) |
+//             map!(braces!(syn!(TokenStream)), |(_, ts)| Either::Right(ts))
+//         ) >>
+//         (AppFields { key, value })
+//     ));
+// }
 
 #[derive(Debug)]
 struct ResFields {
@@ -381,34 +391,34 @@ impl Synom for ResFields {
     ));
 }
 
-struct PathField {
-    path: Path,
-}
+// struct PathField {
+//     path: Path,
+// }
 
-// Parse the init
-// path: main::init
-impl Synom for PathField {
-    named!(parse -> Self, do_parse!(
-        _key: syn!(KeyPath) >>
-        _colon: syn!(Token![:]) >>
-        path: syn!(Path) >>
-        (PathField { path })
-    ));
-}
+// // Parse the init
+// // path: main::init
+// impl Synom for PathField {
+//     named!(parse -> Self, do_parse!(
+//         _key: syn!(KeyPath) >>
+//         _colon: syn!(Token![:]) >>
+//         path: syn!(Path) >>
+//         (PathField { path })
+//     ));
+// }
 
-struct IdleFields {
-    key: Ident,
-    value: TokenStream,
-}
+// struct IdleFields {
+//     key: Ident,
+//     value: TokenStream,
+// }
 
-impl Synom for IdleFields {
-    named!(parse -> Self, do_parse!(
-        key: syn!(Ident) >>
-        _colon: punct!(:) >>
-        value: syn!(TokenStream) >>
-        (IdleFields { key, value })
-    ));
-}
+// impl Synom for IdleFields {
+//     named!(parse -> Self, do_parse!(
+//         key: syn!(Ident) >>
+//         _colon: punct!(:) >>
+//         value: syn!(TokenStream) >>
+//         (IdleFields { key, value })
+//     ));
+// }
 
 #[derive(Debug)]
 enum EnumIdle {
