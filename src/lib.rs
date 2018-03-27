@@ -22,9 +22,9 @@ extern crate proc_macro2;
 pub mod check;
 pub mod error;
 
-mod util;
-
 mod parse;
+mod separated;
+mod util;
 
 use std::collections::{HashMap, HashSet};
 

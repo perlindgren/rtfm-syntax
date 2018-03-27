@@ -3,7 +3,10 @@
 extern crate either;
 extern crate proc_macro;
 extern crate proc_macro2;
-use error::Error;
+extern crate quote;
+
+//use error::Error;
+use std::fmt::Debug;
 
 use syn::Path;
 use syn::punctuated::Punctuated;
@@ -18,11 +21,11 @@ use either::Either;
 use proc_macro2::TokenStream;
 
 use syn;
-use {App, Idle, Init, Resources, Static, Statics, Task, Tasks};
+use {App, Idle, Init, Resources,    Statics, Task, Tasks};
 
 struct Fail {}
 
-impl Synom for Fail {
+    impl Synom for Fail {
     named!(parse -> Self, do_parse!(
         _fail: syn!(Type) >>
         (Fail {})
@@ -102,8 +105,18 @@ fn error(key: &Ident, msg: &str) -> Result<App> {
     bail!(msg);
 }
 
+use separated::Pun;
+
 pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
-    // println!("--------------------------------------- debug");
+    println!("--------------------------------------- debug");
+    let x: Pun<Ident, Token![,]> = syn::parse(input).unwrap();
+    println!("x {:?}", x);
+    panic!("<<< ok");
+
+
+
+
+
     let app: Punct<KeyValue<AppValue>, Token![,]> =
         syn::parse(input).chain_err(|| "parsing `app`")?;
 
@@ -130,19 +143,34 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
 
                 match value.value.right() {
                     Some(ts) => {
-                        println!("ts");
+                        println!("-- parse resources --");
                         let mut hm = Statics::new();
-                        let res: Punct<ResFields, Token![;]> = syn::parse2(ts).unwrap();
-                        for r in res.data.into_iter() {
-                            hm.insert(
-                                r.ident,
-                                Static {
-                                    expr: r.expr,
-                                    ty: r.ty,
-                                    _extensible: (),
-                                },
-                            );
+
+                        match syn::parse2::<ParseResult<Punct<ResFields, Token![;]>>>(ts) {
+                            // ParseResult<Punct<ResFields, Token![;]>>
+                            Ok(ParseResult{ res }) => {
+                                println!("-- ok --");
+                                panic!("happy path");
+
+                            }
+                            _ => {
+                                println!("-- error --");
+                                panic!("sad path");
+                                bail!( "illegal `resource`");
+                            },
                         }
+
+                        // let res: Punct<ResFields, Token![;]> = syn::parse2(ts).chain_err(|| "illegal `resource`")?;
+                        // for r in res.data.into_iter() {
+                        //     hm.insert(
+                        //         r.ident,
+                        //         Static {
+                        //             expr: r.expr,
+                        //             ty: r.ty,
+                        //             _extensible: (),
+                        //         },
+                        //     );
+                        // }
 
                         resources = Some(hm);
                     }
@@ -292,9 +320,13 @@ fn parse_path_resources(ts: TokenStream) -> Result<(Option<Path>, Option<Resourc
         }
     }
     Ok((init_path, resources))
-}
+    }
+
+
+
 
 // Vec[T] (or perhaps not quite)
+#[derive(Debug)]
 struct Punct<T, P>
 where
     T: Synom,
@@ -304,12 +336,29 @@ where
 }
 
 // Parse a comma separated TokenStream into a Vec[T] (or perhaps not quite)
+// impl<T, P> Synom for Punct<T, P>
+// where
+//     T: Synom,
+//     P: Synom,
+// {
+//     named!(parse -> Self, 
+//     alt!(
+//         map!(call!(Punctuated::parse_terminated_nonempty), |data| Punct { data })
+//         |
+//         map!(syn(TokenStream), |ts| {panic!("Punct Err {:?}", ts);})
+//     );
+
+// }
+
 impl<T, P> Synom for Punct<T, P>
 where
     T: Synom,
     P: Synom,
 {
-    named!(parse -> Self, map!(call!(Punctuated::parse_terminated_nonempty), |data| Punct { data }));
+    named!(parse -> Self, 
+        map!(call!(Punctuated::parse_terminated_nonempty), |data| Punct { data })
+    );
+
 }
 
 // Parse the top level app!
@@ -403,20 +452,35 @@ where
 
 impl<T> Synom for ParseResult<T>
 where
-    T: Synom,
+    T: Synom + Debug,
 {
     named!(parse -> Self, do_parse!(
         res: alt!(
             do_parse!(
-                res: syn!(T) >>
+                res: map!(syn!(T), |ts| {
+                    println!("<< ParseResult, Ok {:?}>>", ts); ts 
+                }) >>
                 (Ok(res))
             )
             |
             do_parse!(
-                res: syn!(TokenStream) >>
-                // (Err(error::Error))
-                ( Err("foo error!".into()) )
+// named!(parse -> Self, map!(call!(Punctuated::parse_terminated_nonempty), |data| Punct { data }));
+
+                res: map!(syn!(TokenStream), |ts| { 
+                    println!("<< ParseResult, Err {:?}>>", ts);
+                    panic!("ueothnth");
+                }) >>
                 
+                // (Err(error::Error))
+                // let s = String::from(format!(
+                                    //     "expected `{:?}`, got {:?}",
+                                    //     $key,
+                                    //     o.as_ref()
+                                    // ));
+
+                                    // o.span.unstable().warning(s).emit();
+
+                ( Err("foo error!".into()) )                
             )
         ) >>
         (ParseResult { res })
