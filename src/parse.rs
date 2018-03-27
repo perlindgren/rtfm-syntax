@@ -3,6 +3,7 @@
 extern crate either;
 extern crate proc_macro;
 extern crate proc_macro2;
+use error::Error;
 
 use syn::Path;
 use syn::punctuated::Punctuated;
@@ -121,7 +122,7 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
                     device = Some(path);
                 }
                 _ => {
-                    error(&key, "path expected")?;
+                    error(&key, "`device` path expected")?;
                 }
             },
             "resources" => {
@@ -146,30 +147,26 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
                         resources = Some(hm);
                     }
                     _ => {
-                        println!("expected list of resource definitions");
-                        panic!("internal error");
+                        error(&key, "`resources` expected")?;
                     }
                 }
             }
             "init" => {
                 println!("init");
-                if init == None {
-                    match value.value.right() {
-                        Some(ts) => {
-                            let (path, resources) =
-                                parse_path_resources(ts).chain_err(|| "parsing init")?;
-                            init = Some(Init {
-                                path,
-                                resources,
-                                _extensible: (),
-                            })
-                        }
-                        _ => {
-                            panic!("internal error");
-                        }
+
+                match value.value.right() {
+                    Some(ts) => {
+                        let (path, resources) =
+                            parse_path_resources(ts).chain_err(|| "parsing init")?;
+                        init = Some(Init {
+                            path,
+                            resources,
+                            _extensible: (),
+                        })
                     }
-                } else {
-                    bail!("Field `init` multiple defined.");
+                    _ => {
+                        panic!("internal error");
+                    }
                 }
             }
 
@@ -391,6 +388,38 @@ impl Synom for ResFields {
             )
         ) >>
         (ResFields { ident, ty, expr })
+    ));
+}
+
+#[derive(Debug)]
+struct ParseResult<T>
+where
+    T: Synom,
+{
+    res: Result<T>,
+}
+
+// Parse a field
+
+impl<T> Synom for ParseResult<T>
+where
+    T: Synom,
+{
+    named!(parse -> Self, do_parse!(
+        res: alt!(
+            do_parse!(
+                res: syn!(T) >>
+                (Ok(res))
+            )
+            |
+            do_parse!(
+                res: syn!(TokenStream) >>
+                // (Err(error::Error))
+                ( Err("foo error!".into()) )
+                
+            )
+        ) >>
+        (ParseResult { res })
     ));
 }
 
