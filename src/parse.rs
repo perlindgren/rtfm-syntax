@@ -21,11 +21,11 @@ use either::Either;
 use proc_macro2::TokenStream;
 
 use syn;
-use {App, Idle, Init, Resources,    Statics, Task, Tasks};
+use {App, Idle, Init, Resources, Statics, Task, Tasks};
 
 struct Fail {}
 
-    impl Synom for Fail {
+impl Synom for Fail {
     named!(parse -> Self, do_parse!(
         _fail: syn!(Type) >>
         (Fail {})
@@ -105,17 +105,15 @@ fn error(key: &Ident, msg: &str) -> Result<App> {
     bail!(msg);
 }
 
-use separated::Pun;
+use separated::*;
 
 pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
     println!("--------------------------------------- debug");
-    let x: Pun<Ident, Token![,]> = syn::parse(input).unwrap();
+    let x: Separated<Ident, Token![,]> = syn::parse(input).unwrap();
+    //let x: Terminated<Ident, Token![,]> = syn::parse(input).unwrap();
+    // let x: SeparatedNonEmpty<Ident, Token![,]> = syn::parse(input).unwrap();
     println!("x {:?}", x);
     panic!("<<< ok");
-
-
-
-
 
     let app: Punct<KeyValue<AppValue>, Token![,]> =
         syn::parse(input).chain_err(|| "parsing `app`")?;
@@ -148,16 +146,15 @@ pub fn parse_app(input: proc_macro::TokenStream) -> Result<App> {
 
                         match syn::parse2::<ParseResult<Punct<ResFields, Token![;]>>>(ts) {
                             // ParseResult<Punct<ResFields, Token![;]>>
-                            Ok(ParseResult{ res }) => {
+                            Ok(ParseResult { res }) => {
                                 println!("-- ok --");
                                 panic!("happy path");
-
                             }
                             _ => {
                                 println!("-- error --");
                                 panic!("sad path");
-                                bail!( "illegal `resource`");
-                            },
+                                bail!("illegal `resource`");
+                            }
                         }
 
                         // let res: Punct<ResFields, Token![;]> = syn::parse2(ts).chain_err(|| "illegal `resource`")?;
@@ -320,10 +317,7 @@ fn parse_path_resources(ts: TokenStream) -> Result<(Option<Path>, Option<Resourc
         }
     }
     Ok((init_path, resources))
-    }
-
-
-
+}
 
 // Vec[T] (or perhaps not quite)
 #[derive(Debug)]
@@ -341,7 +335,7 @@ where
 //     T: Synom,
 //     P: Synom,
 // {
-//     named!(parse -> Self, 
+//     named!(parse -> Self,
 //     alt!(
 //         map!(call!(Punctuated::parse_terminated_nonempty), |data| Punct { data })
 //         |
@@ -358,7 +352,6 @@ where
     named!(parse -> Self, 
         map!(call!(Punctuated::parse_terminated_nonempty), |data| Punct { data })
     );
-
 }
 
 // Parse the top level app!
